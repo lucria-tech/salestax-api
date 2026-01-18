@@ -28,9 +28,9 @@ This guide covers deploying the Tax Calculator API to DigitalOcean App Platform 
 1. Go to DigitalOcean Dashboard → Apps → Create App
 2. Connect your GitHub repository: `lucria-tech/salestax-api`
 3. Configure build settings:
-   - **Build Command:** `bun install`
-   - **Run Command:** `bun run src/server.ts`
-   - **Environment:** Node.js (Bun runs on Node.js runtime)
+   - **Build Command:** `bun run build` (or leave empty, uses package.json build script)
+   - **Run Command:** `bun run start`
+   - **Environment:** Bun (select Bun runtime if available, otherwise Node.js)
 
 ### 3. Configure Environment Variables
 

@@ -5,6 +5,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "build": "bun install",
     "dev": "bun run src/server.ts",
     "start": "bun run src/server.ts",
     "test": "bun test",

@@ -160,6 +160,11 @@ Stores all API requests in Upstash Redis.
 
 Tracks API costs for PROD requests only.
 
+**Important Billing Policy:**
+- ✅ **Charged:** Only successful TaxJar API calls (status 200 with valid rate data)
+- ❌ **NOT Charged:** TaxJar API errors, network failures, invalid responses, or missing data
+- This ensures users are never charged for issues outside their control
+
 **Data Structure:**
 ```typescript
 {
@@ -185,7 +190,16 @@ Tracks API costs for PROD requests only.
 **Cost Calculation:**
 - Cost per call: ₹2 (configurable via `COST_PER_CALL`)
 - Only PROD API calls are tracked
+- **Only charged for successful API calls** (status 200 with valid rate data)
 - Monthly totals automatically calculated
+
+**Billing Protection:**
+- Users are NOT charged for:
+  - TaxJar API errors (4xx, 5xx status codes)
+  - Network failures or timeouts
+  - Invalid or malformed responses
+  - Missing rate data in response
+- All errors are logged for debugging but don't affect billing
 
 ### 5. Slack Service (`src/services/slack.ts`)
 
@@ -222,11 +236,16 @@ Main API endpoint handler for tax calculations.
 1. Validates API key
 2. Parses query parameters (country, zip, city, street)
 3. Builds TaxJar API URL
-4. Forwards request to TaxJar
-5. Logs query to Redis
-6. Tracks cost (if PROD)
-7. Sends Slack notification (if PROD)
+4. Forwards request to TaxJar (with error handling)
+5. Logs query to Redis (always, for debugging)
+6. **Only if successful:** Tracks cost (PROD only)
+7. **Only if successful:** Sends Slack notification (PROD only)
 8. Returns response to client
+
+**Billing Protection:**
+- Cost is tracked ONLY if TaxJar returns status 200 with valid rate data
+- Network errors, API errors, or invalid responses do NOT result in charges
+- All requests are logged for debugging, but billing only occurs on success
 
 ### 7. Admin Dashboard (`src/routes/admin.ts`)
 
@@ -286,14 +305,25 @@ Request → Validate TEST_API_KEY → Forward to TaxJar → Log Query → Return
 ### PROD API Key Flow
 
 ```
-Request → Validate PROD_API_KEY → Forward to TaxJar → Log Query → Track Cost → Send Slack → Return Response
+Request → Validate PROD_API_KEY → Forward to TaxJar → Check Success → Log Query → [If Success: Track Cost + Send Slack] → Return Response
 ```
 
 **What happens:**
-1. ✅ Query logged to Redis
-2. ✅ Cost tracked (₹2 per call)
-3. ✅ Slack notification sent
-4. ✅ Monthly totals updated
+1. ✅ Query logged to Redis (always, for debugging)
+2. ✅ **If successful:** Cost tracked (₹2 per call)
+3. ✅ **If successful:** Slack notification sent
+4. ✅ **If successful:** Monthly totals updated
+5. ❌ **If error:** No charge, no Slack, but error logged
+
+**Success Criteria (must all be true):**
+- TaxJar API returns status 200
+- Response contains valid `rate` object
+- Rate object has `combined_rate` field
+- No error field in response
+
+**Billing Protection:**
+- Users are NOT charged for TaxJar errors, network failures, or invalid responses
+- All errors are logged for debugging but don't affect billing
 
 ## 🌐 API Endpoints
 

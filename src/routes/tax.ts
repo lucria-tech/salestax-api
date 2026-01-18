@@ -38,22 +38,62 @@ export async function handleTaxRequest(req: Request): Promise<Response> {
     taxjarUrl.searchParams.set("zip", zip);
     taxjarUrl.searchParams.set("country", country);
 
-    // Forward request to TaxJar API
-    const response = await fetch(taxjarUrl.toString(), {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
-    });
+    let data: any;
+    let statusCode: number;
+    let isSuccess = false;
 
-    const data = await response.json();
-    const statusCode = response.status;
+    try {
+      // Forward request to TaxJar API
+      const response = await fetch(taxjarUrl.toString(), {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+        },
+      });
 
-    // Log the query (both TEST and PROD)
+      statusCode = response.status;
+      
+      // Try to parse JSON response
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        // If JSON parsing fails, treat as error
+        data = { error: "Invalid response from TaxJar API" };
+        statusCode = 500;
+      }
+
+      // Check if the TaxJar API call was successful
+      // Only charge if: status 200, no error field, and has valid rate data
+      isSuccess = statusCode === 200 && 
+                  data && 
+                  !data.error && 
+                  data.rate && 
+                  typeof data.rate === "object" &&
+                  data.rate.combined_rate !== undefined;
+
+    } catch (fetchError) {
+      // Network error, timeout, or other fetch failures
+      // Don't charge user for these issues
+      statusCode = 500;
+      data = { 
+        error: fetchError instanceof Error 
+          ? `TaxJar API error: ${fetchError.message}` 
+          : "Failed to connect to TaxJar API" 
+      };
+      isSuccess = false;
+    }
+
+    // Log the query (both TEST and PROD, including errors for debugging)
+    // This helps track issues but doesn't affect billing
     await logQuery(apiKeyType, query, data, statusCode);
 
-    // Handle PROD API key: track costs and send Slack notification
-    if (apiKeyType === "prod") {
+    // Handle PROD API key: ONLY track costs and send Slack if TaxJar call was successful
+    // Don't charge user for:
+    // - TaxJar API errors (4xx, 5xx)
+    // - Network failures
+    // - Invalid responses
+    // - Missing rate data
+    if (apiKeyType === "prod" && isSuccess) {
       const costStats = await trackCost();
       await sendSlackNotification(
         query,

@@ -1,19 +1,5 @@
-import { existsSync, mkdirSync, readdirSync } from "fs";
-import { join } from "path";
+import { getRedisClient } from "../utils/redis.ts";
 import type { QueryLog, MonthlyQueryLog, TaxQuery, TaxResponse } from "../types/index.ts";
-
-const DATA_DIR = join(process.cwd(), "data");
-const LOGS_DIR = join(DATA_DIR, "logs");
-
-// Ensure directories exist
-function ensureDirectories() {
-  if (!existsSync(DATA_DIR)) {
-    mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!existsSync(LOGS_DIR)) {
-    mkdirSync(LOGS_DIR, { recursive: true });
-  }
-}
 
 function getCurrentMonth(): string {
   const now = new Date();
@@ -22,26 +8,28 @@ function getCurrentMonth(): string {
   return `${year}-${month}`;
 }
 
-function getLogFilePath(month: string): string {
-  return join(LOGS_DIR, `${month}.json`);
+function getLogKey(month: string): string {
+  return `logs:${month}`;
 }
 
 async function loadMonthlyLog(month: string): Promise<MonthlyQueryLog> {
-  const filePath = getLogFilePath(month);
-  
-  if (!existsSync(filePath)) {
-    return {
-      month,
-      queries: [],
-    };
-  }
-
   try {
-    const file = Bun.file(filePath);
-    const content = await file.text();
-    return JSON.parse(content) as MonthlyQueryLog;
+    const redis = getRedisClient();
+    const key = getLogKey(month);
+    const data = await redis.get(key);
+    
+    if (!data) {
+      return {
+        month,
+        queries: [],
+      };
+    }
+
+    // Upstash returns data as string, parse it
+    const parsed = typeof data === "string" ? JSON.parse(data) : data;
+    return parsed as MonthlyQueryLog;
   } catch (error) {
-    console.error(`Error loading log file ${filePath}:`, error);
+    console.error(`Error loading log from Redis for month ${month}:`, error);
     return {
       month,
       queries: [],
@@ -50,13 +38,15 @@ async function loadMonthlyLog(month: string): Promise<MonthlyQueryLog> {
 }
 
 async function saveMonthlyLog(log: MonthlyQueryLog): Promise<void> {
-  ensureDirectories();
-  const filePath = getLogFilePath(log.month);
-  
   try {
-    await Bun.write(filePath, JSON.stringify(log, null, 2));
+    const redis = getRedisClient();
+    const key = getLogKey(log.month);
+    await redis.set(key, JSON.stringify(log));
+    
+    // Set expiration to 1 year (optional, but good practice)
+    await redis.expire(key, 365 * 24 * 60 * 60);
   } catch (error) {
-    console.error(`Error saving log file ${filePath}:`, error);
+    console.error(`Error saving log to Redis for month ${log.month}:`, error);
     throw error;
   }
 }
@@ -90,18 +80,17 @@ export async function logQuery(
 export async function getAllLogs(): Promise<MonthlyQueryLog[]> {
   const logs: MonthlyQueryLog[] = [];
   
-  if (!existsSync(LOGS_DIR)) {
-    return logs;
-  }
-
   try {
-    const files = readdirSync(LOGS_DIR).filter((f) => f.endsWith(".json"));
+    const redis = getRedisClient();
+    const keys = await redis.keys("logs:*");
     
-    for (const file of files) {
-      const filePath = join(LOGS_DIR, file);
-      const fileContent = await Bun.file(filePath).text();
-      const log = JSON.parse(fileContent) as MonthlyQueryLog;
-      logs.push(log);
+    for (const key of keys) {
+      const data = await redis.get(key);
+      if (data) {
+        // Upstash returns data as string, parse it
+        const parsed = typeof data === "string" ? JSON.parse(data) : data;
+        logs.push(parsed as MonthlyQueryLog);
+      }
     }
 
     // Sort by month descending (newest first)
@@ -109,7 +98,7 @@ export async function getAllLogs(): Promise<MonthlyQueryLog[]> {
     
     return logs;
   } catch (error) {
-    console.error("Error loading all logs:", error);
+    console.error("Error loading all logs from Redis:", error);
     return logs;
   }
 }

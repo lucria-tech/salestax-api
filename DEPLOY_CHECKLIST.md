@@ -17,9 +17,9 @@
 4. Select branch: `main`
 
 #### Step 2: Configure Build Settings
-- **Build Command:** `bun install`
-- **Run Command:** `bun run src/server.ts`
-- **Environment:** Node.js (Bun runs on Node.js runtime)
+- **Build Command:** `bun run build` (or leave empty - uses package.json build script)
+- **Run Command:** `bun run start`
+- **Environment:** Bun (select Bun runtime if available, otherwise Node.js)
 
 #### Step 3: Set Environment Variables
 Go to **Settings → App-Level Environment Variables** and add:

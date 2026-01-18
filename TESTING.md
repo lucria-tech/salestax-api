@@ -85,7 +85,7 @@ The server will start on `http://localhost:3000` (or your configured PORT).
 #### Test API Key (No Slack, No Cost Tracking)
 
 ```bash
-curl -H "x-api-key: 5863f9667ed0952fc085bb6cdab5c368c66e8d0b0f6057a9d004c09b387cb175" \
+curl -H "x-api-key: YOUR_TEST_API_KEY" \
   "http://localhost:3000/?country=US&zip=48201"
 ```
 
@@ -94,7 +94,7 @@ curl -H "x-api-key: 5863f9667ed0952fc085bb6cdab5c368c66e8d0b0f6057a9d004c09b387c
 #### Production API Key (Full Features)
 
 ```bash
-curl -H "x-api-key: 400c94d04d8e55387fc4247642c31b2e6efe8c10676608c1b7f1f676b82d6956" \
+curl -H "x-api-key: YOUR_PROD_API_KEY" \
   "http://localhost:3000/?country=US&zip=48201"
 ```
 
@@ -238,8 +238,8 @@ cat data/costs/$(date +%Y-%m).json
 Create a `.env` file with:
 
 ```bash
-TEST_API_KEY=5863f9667ed0952fc085bb6cdab5c368c66e8d0b0f6057a9d004c09b387cb175
-PROD_API_KEY=400c94d04d8e55387fc4247642c31b2e6efe8c10676608c1b7f1f676b82d6956
+TEST_API_KEY=your-test-api-key-here
+PROD_API_KEY=your-prod-api-key-here
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 COST_PER_CALL=2
 PORT=3000

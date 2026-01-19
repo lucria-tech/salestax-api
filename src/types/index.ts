@@ -1,8 +1,5 @@
 export interface TaxQuery {
-  street?: string;
-  city?: string;
-  zip?: string;
-  country: string;
+  zip: string;
 }
 
 export interface TaxRate {

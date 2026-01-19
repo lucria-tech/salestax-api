@@ -1,25 +1,27 @@
+import { join } from "path";
 import { handleTaxRequest } from "./routes/tax.ts";
-import { handleSwaggerUI, handleOpenApiJson } from "./routes/docs.ts";
+import {
+  handleSwaggerUI,
+  handleOpenApiJson,
+  handleDocsHtml,
+} from "./routes/docs.ts";
 import { handleAdminUI } from "./routes/admin.ts";
 import { addCorsHeaders } from "./utils/cors.ts";
 
 const PORT = parseInt(Bun.env.PORT || "3000", 10);
 
-const API_DOCS = `Tax Calculator API - Usage Guide
+const API_DOCS = `Tax Calculator API - Usage Guide (US-only)
 
 Authentication:
   - Required Header: x-api-key: YOUR_API_KEY
   - All requests must include this header
 
 Query Parameters:
-  - country (required): Country code (e.g., "US")
-  - zip (required for US): ZIP/Postal code
-  - street (optional): Street address
-  - city (optional): City name
+  - zip (required): US ZIP/Postal code
 
 Example Request:
   curl -H "x-api-key: YOUR_API_KEY" \\
-    "http://localhost:3000/?country=US&zip=48201"
+    "https://lucria-salestax-api-3sgwb.ondigitalocean.app/?zip=48201"
 
 Example Response:
   {
@@ -34,7 +36,7 @@ Example Response:
 
 Error Responses:
   - 401: Missing or invalid API key
-  - 400: Missing required parameters (zip required for US)`;
+  - 400: Missing required parameters (zip is required)`;
 
 async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -66,12 +68,60 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   // Documentation endpoints
-  if (url.pathname === "/docs") {
+  if (url.pathname === "/docs" || url.pathname === "/docs/") {
+    return handleDocsHtml(req);
+  }
+
+  if (url.pathname === "/docs/dev" || url.pathname === "/docs/dev/") {
     return handleSwaggerUI(req);
   }
 
-  if (url.pathname === "/docs/openapi.json") {
+  if (url.pathname === "/docs/dev/openapi.json") {
     return handleOpenApiJson(req);
+  }
+
+  // Static assets
+  if (url.pathname === "/static/og.png") {
+    try {
+      const filePath = join(process.cwd(), "static", "og.png");
+      const file = Bun.file(filePath);
+      
+      // Check if file exists
+      const exists = await file.exists();
+      if (!exists) {
+        const headers = addCorsHeaders(
+          new Headers({
+            "Content-Type": "application/json",
+          })
+        );
+        return new Response(
+          JSON.stringify({ error: "OG image not found" }),
+          { headers, status: 404 }
+        );
+      }
+
+      const headers = addCorsHeaders(
+        new Headers({
+          "Content-Type": "image/png",
+          "Cache-Control": "public, max-age=31536000, immutable",
+        })
+      );
+
+      return new Response(file, {
+        headers,
+        status: 200,
+      });
+    } catch (error) {
+      const headers = addCorsHeaders(
+        new Headers({
+          "Content-Type": "application/json",
+        })
+      );
+      return new Response(
+        JSON.stringify({ error: "Failed to serve OG image" }),
+        { headers, status: 500 }
+      );
+    }
   }
 
   // Root endpoint - tax calculation or API docs
@@ -110,5 +160,10 @@ const server = Bun.serve({
 
 console.log(`🚀 Tax Calculator API server running on http://localhost:${PORT}`);
 console.log(`📚 API Documentation: http://localhost:${PORT}/docs`);
-console.log(`🔍 OpenAPI Spec: http://localhost:${PORT}/docs/openapi.json`);
+console.log(
+  `🧑‍💻 Developer Docs (Swagger UI): http://localhost:${PORT}/docs/dev`,
+);
+console.log(
+  `🔍 OpenAPI Spec: http://localhost:${PORT}/docs/dev/openapi.json`,
+);
 console.log(`❤️  Health Check: http://localhost:${PORT}/health`);

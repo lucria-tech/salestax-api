@@ -38,19 +38,16 @@ describe("Tax API Integration Tests", () => {
     }
   });
 
-  it("should return 200 with valid API key and query params", async () => {
+  it("should return 200 with valid API key and zip", async () => {
     if (!serverRunning) {
       console.log("⏭️  Skipping - server not running");
       return;
     }
-    const response = await fetch(
-      `${BASE_URL}/?country=US&zip=48201`,
-      {
-        headers: {
-          "x-api-key": TEST_API_KEY,
-        },
-      }
-    );
+    const response = await fetch(`${BASE_URL}/?zip=48201`, {
+      headers: {
+        "x-api-key": TEST_API_KEY,
+      },
+    });
 
     expect(response.status).toBe(200);
     const data = await response.json();
@@ -63,7 +60,7 @@ describe("Tax API Integration Tests", () => {
       console.log("⏭️  Skipping - server not running");
       return;
     }
-    const response = await fetch(`${BASE_URL}/?country=US&zip=48201`);
+    const response = await fetch(`${BASE_URL}/?zip=48201`);
     
     // Should return docs, not 401, when no API key is provided
     expect(response.status).toBe(200);
@@ -76,14 +73,11 @@ describe("Tax API Integration Tests", () => {
       console.log("⏭️  Skipping - server not running");
       return;
     }
-    const response = await fetch(
-      `${BASE_URL}/?country=US&zip=48201`,
-      {
-        headers: {
-          "x-api-key": "invalid-key",
-        },
-      }
-    );
+    const response = await fetch(`${BASE_URL}/?zip=48201`, {
+      headers: {
+        "x-api-key": "invalid-key",
+      },
+    });
 
     expect(response.status).toBe(401);
     const data = await response.json();
@@ -125,10 +119,69 @@ describe("Tax API Integration Tests", () => {
       console.log("⏭️  Skipping - server not running");
       return;
     }
-    const response = await fetch(`${BASE_URL}/docs/openapi.json`);
+    const response = await fetch(`${BASE_URL}/docs/dev/openapi.json`);
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data).toHaveProperty("openapi");
     expect(data.openapi).toBe("3.0.0");
+  });
+
+  it("should return OG image at /static/og.png", async () => {
+    if (!serverRunning) {
+      console.log("⏭️  Skipping - server not running");
+      return;
+    }
+    const response = await fetch(`${BASE_URL}/static/og.png`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("image/png");
+    expect(response.headers.get("Cache-Control")).toContain("max-age=31536000");
+    
+    // Verify it's actually a PNG by checking the response is not empty
+    const blob = await response.blob();
+    expect(blob.size).toBeGreaterThan(0);
+    expect(blob.type).toBe("image/png");
+  });
+
+  it("should return 400 when zip parameter is missing", async () => {
+    if (!serverRunning) {
+      console.log("⏭️  Skipping - server not running");
+      return;
+    }
+    const response = await fetch(`${BASE_URL}/`, {
+      headers: {
+        "x-api-key": TEST_API_KEY,
+      },
+    });
+
+    expect(response.status).toBe(400);
+    const data = await response.json();
+    expect(data).toHaveProperty("error");
+    expect(data.error).toContain("zip");
+  });
+
+  it("should return readable HTML docs at /docs", async () => {
+    if (!serverRunning) {
+      console.log("⏭️  Skipping - server not running");
+      return;
+    }
+    const response = await fetch(`${BASE_URL}/docs`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("text/html");
+    const html = await response.text();
+    expect(html).toContain("Lucria Sales Tax API Documentation");
+    expect(html).toContain("og:image");
+    expect(html).toContain("/static/og.png");
+  });
+
+  it("should return Swagger UI at /docs/dev", async () => {
+    if (!serverRunning) {
+      console.log("⏭️  Skipping - server not running");
+      return;
+    }
+    const response = await fetch(`${BASE_URL}/docs/dev`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("text/html");
+    const html = await response.text();
+    expect(html).toContain("swagger-ui");
   });
 });

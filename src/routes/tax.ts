@@ -18,25 +18,33 @@ export async function handleTaxRequest(req: Request): Promise<Response> {
     const validation = requireApiKey(apiKey);
     const apiKeyType = validation.type as "test" | "prod";
 
-    // Parse query parameters
-    const street = url.searchParams.get("street") || "";
-    const city = url.searchParams.get("city") || "";
+    // Parse query parameters (US-only: require zip)
     const zip = url.searchParams.get("zip") || "";
-    const country = url.searchParams.get("country") || "";
+
+    if (!zip) {
+      const headers = addCorsHeaders(
+        new Headers({
+          "Content-Type": "application/json",
+        })
+      );
+
+      return new Response(
+        JSON.stringify({ error: "Missing required query parameter: zip" }),
+        {
+          headers,
+          status: 400,
+        }
+      );
+    }
 
     const query: TaxQuery = {
-      street,
-      city,
       zip,
-      country,
     };
 
     // Build TaxJar API URL
     const taxjarUrl = new URL(TAXJAR_API_URL);
-    taxjarUrl.searchParams.set("street", street);
-    taxjarUrl.searchParams.set("city", city);
     taxjarUrl.searchParams.set("zip", zip);
-    taxjarUrl.searchParams.set("country", country);
+    taxjarUrl.searchParams.set("country", "US");
 
     let data: any;
     let statusCode: number;

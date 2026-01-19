@@ -240,12 +240,14 @@ export async function handleAdminUI(req: Request): Promise<Response> {
     invocations: cost.totalInvocations,
   }));
 
-  // Get recent queries (last 50)
+  // Get all queries (for filtering)
   const allQueries = logs.flatMap((log) =>
     log.queries.map((q) => ({ ...q, month: log.month }))
   );
   allQueries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  const recentQueries = allQueries.slice(0, 50);
+  
+  // Get unique months for filter
+  const uniqueMonths = Array.from(new Set(logs.map((log) => log.month))).sort().reverse();
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -409,6 +411,80 @@ export async function handleAdminUI(req: Request): Promise<Response> {
             color: white;
             border-color: #2563eb;
         }
+        .filters-container {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+        .filters-container h2 {
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+            color: #1a202c;
+        }
+        .filters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .filter-group label {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #374151;
+        }
+        .filter-group select,
+        .filter-group input {
+            padding: 0.5rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            background: white;
+        }
+        .filter-group select:focus,
+        .filter-group input:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+        .filter-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: #2563eb;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #1d4ed8;
+        }
+        .btn-secondary {
+            background: #e5e7eb;
+            color: #374151;
+        }
+        .btn-secondary:hover {
+            background: #d1d5db;
+        }
+        .filter-results {
+            font-size: 0.875rem;
+            color: #718096;
+            margin-top: 0.5rem;
+        }
     </style>
 </head>
 <body>
@@ -447,8 +523,46 @@ export async function handleAdminUI(req: Request): Promise<Response> {
             <canvas id="costsChart" height="80"></canvas>
         </div>
 
+        <div class="filters-container">
+            <h2>🔍 Filters</h2>
+            <div class="filters-grid">
+                <div class="filter-group">
+                    <label for="filterMonth">Month</label>
+                    <select id="filterMonth">
+                        <option value="">All Months</option>
+                        ${uniqueMonths.map((month) => `<option value="${month}">${month}</option>`).join("")}
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filterApiKey">API Key Type</label>
+                    <select id="filterApiKey">
+                        <option value="">All Types</option>
+                        <option value="prod">Production</option>
+                        <option value="test">Test</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filterStatus">Status Code</label>
+                    <select id="filterStatus">
+                        <option value="">All Status</option>
+                        <option value="200">Success (200)</option>
+                        <option value="error">Errors (4xx/5xx)</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filterZip">ZIP Code</label>
+                    <input type="text" id="filterZip" placeholder="e.g., 48201">
+                </div>
+            </div>
+            <div class="filter-actions">
+                <button class="btn btn-primary" onclick="applyFilters()">Apply Filters</button>
+                <button class="btn btn-secondary" onclick="clearFilters()">Clear All</button>
+            </div>
+            <div class="filter-results" id="filterResults">Showing all ${allQueries.length} queries</div>
+        </div>
+
         <div class="queries-table">
-            <h2>Recent Queries (Last 50)</h2>
+            <h2>Queries</h2>
             <table>
                 <thead>
                     <tr>
@@ -459,11 +573,11 @@ export async function handleAdminUI(req: Request): Promise<Response> {
                         <th>Response</th>
                     </tr>
                 </thead>
-                <tbody>
-                    ${recentQueries
+                <tbody id="queriesTableBody">
+                    ${allQueries
                       .map(
                         (q) => `
-                    <tr>
+                    <tr data-month="${q.month}" data-apikey="${q.apiKey}" data-status="${q.statusCode}" data-zip="${(q.query as any).zip || ""}">
                         <td>${new Date(q.timestamp).toLocaleString()}</td>
                         <td><span class="badge ${q.apiKey}">${q.apiKey.toUpperCase()}</span></td>
                         <td><span class="query-url">?${new URLSearchParams(
@@ -487,9 +601,166 @@ export async function handleAdminUI(req: Request): Promise<Response> {
     </div>
 
     <script>
+        // Store all queries data for filtering
+        const allQueriesData = ${JSON.stringify(allQueries)};
+        const monthlyQueryDataOriginal = ${JSON.stringify(monthlyQueryData)};
+        const monthlyCostDataOriginal = ${JSON.stringify(monthlyCostData)};
+        
+        let queriesChart = null;
+        let costsChart = null;
+
+        function applyFilters() {
+            const month = document.getElementById('filterMonth').value;
+            const apiKey = document.getElementById('filterApiKey').value;
+            const status = document.getElementById('filterStatus').value;
+            const zip = document.getElementById('filterZip').value.trim().toLowerCase();
+            
+            const rows = document.querySelectorAll('#queriesTableBody tr');
+            let visibleCount = 0;
+            
+            rows.forEach(row => {
+                const rowMonth = row.getAttribute('data-month');
+                const rowApiKey = row.getAttribute('data-apikey');
+                const rowStatus = row.getAttribute('data-status');
+                const rowZip = (row.getAttribute('data-zip') || '').toLowerCase();
+                
+                let show = true;
+                
+                if (month && rowMonth !== month) show = false;
+                if (apiKey && rowApiKey !== apiKey) show = false;
+                if (status === '200' && rowStatus !== '200') show = false;
+                if (status === 'error' && rowStatus === '200') show = false;
+                if (zip && !rowZip.includes(zip)) show = false;
+                
+                if (show) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+            
+            document.getElementById('filterResults').textContent = 
+                'Showing ' + visibleCount + ' of ' + allQueriesData.length + ' queries';
+            
+            // Update stats based on filtered data
+            updateStats(month, apiKey, status, zip);
+        }
+        
+        function updateStats(month, apiKey, status, zip) {
+            let filteredQueries = allQueriesData.filter(q => {
+                if (month && q.month !== month) return false;
+                if (apiKey && q.apiKey !== apiKey) return false;
+                if (status === '200' && q.statusCode !== 200) return false;
+                if (status === 'error' && q.statusCode === 200) return false;
+                if (zip && (!q.query.zip || !q.query.zip.toLowerCase().includes(zip))) return false;
+                return true;
+            });
+            
+            const totalQueries = filteredQueries.length;
+            const prodQueries = filteredQueries.filter(q => q.apiKey === 'prod').length;
+            const testQueries = filteredQueries.filter(q => q.apiKey === 'test').length;
+            
+            // Calculate cost from filtered PROD queries
+            const prodFiltered = filteredQueries.filter(q => q.apiKey === 'prod' && q.statusCode === 200);
+            const totalCost = prodFiltered.length * 2; // Assuming ₹2 per call
+            
+            // Update stat cards
+            document.querySelector('.stat-card:nth-child(1) .value').textContent = totalQueries.toLocaleString();
+            document.querySelector('.stat-card:nth-child(2) .value').textContent = prodQueries.toLocaleString();
+            document.querySelector('.stat-card:nth-child(3) .value').textContent = testQueries.toLocaleString();
+            document.querySelector('.stat-card:nth-child(4) .value').textContent = '₹' + totalCost.toFixed(2);
+            
+            // Update charts if month filter is applied
+            if (month) {
+                updateChartsForMonth(month, apiKey, status, zip);
+            } else {
+                updateChartsForAll(apiKey, status, zip);
+            }
+        }
+        
+        function updateChartsForMonth(month, apiKey, status, zip) {
+            // Filter data for the selected month
+            const monthData = monthlyQueryDataOriginal.find(d => d.month === month);
+            if (!monthData) return;
+            
+            let filteredData = {
+                total: monthData.total,
+                prod: monthData.prod,
+                test: monthData.test
+            };
+            
+            if (apiKey === 'prod') {
+                filteredData.total = filteredData.prod;
+                filteredData.test = 0;
+            } else if (apiKey === 'test') {
+                filteredData.total = filteredData.test;
+                filteredData.prod = 0;
+            }
+            
+            if (queriesChart) {
+                queriesChart.data.labels = [month];
+                queriesChart.data.datasets[0].data = [filteredData.total];
+                queriesChart.data.datasets[1].data = [filteredData.prod];
+                queriesChart.data.datasets[2].data = [filteredData.test];
+                queriesChart.update();
+            }
+        }
+        
+        function updateChartsForAll(apiKey, status, zip) {
+            // Recalculate monthly data based on filters
+            const filteredData = allQueriesData.filter(q => {
+                if (apiKey && q.apiKey !== apiKey) return false;
+                if (status === '200' && q.statusCode !== 200) return false;
+                if (status === 'error' && q.statusCode === 200) return false;
+                if (zip && (!q.query.zip || !q.query.zip.toLowerCase().includes(zip))) return false;
+                return true;
+            });
+            
+            const monthlyMap = {};
+            filteredData.forEach(q => {
+                if (!monthlyMap[q.month]) {
+                    monthlyMap[q.month] = { total: 0, prod: 0, test: 0 };
+                }
+                monthlyMap[q.month].total++;
+                if (q.apiKey === 'prod') monthlyMap[q.month].prod++;
+                if (q.apiKey === 'test') monthlyMap[q.month].test++;
+            });
+            
+            const months = Object.keys(monthlyMap).sort();
+            const totals = months.map(m => monthlyMap[m].total);
+            const prods = months.map(m => monthlyMap[m].prod);
+            const tests = months.map(m => monthlyMap[m].test);
+            
+            if (queriesChart) {
+                queriesChart.data.labels = months;
+                queriesChart.data.datasets[0].data = totals;
+                queriesChart.data.datasets[1].data = prods;
+                queriesChart.data.datasets[2].data = tests;
+                queriesChart.update();
+            }
+        }
+        
+        function clearFilters() {
+            document.getElementById('filterMonth').value = '';
+            document.getElementById('filterApiKey').value = '';
+            document.getElementById('filterStatus').value = '';
+            document.getElementById('filterZip').value = '';
+            applyFilters();
+        }
+        
+        // Allow Enter key to apply filters
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('filterZip').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    applyFilters();
+                }
+            });
+        });
+
         // Queries Chart
         const queriesCtx = document.getElementById('queriesChart').getContext('2d');
-        new Chart(queriesCtx, {
+        queriesChart = new Chart(queriesCtx, {
             type: 'line',
             data: {
                 labels: ${JSON.stringify(monthlyQueryData.map((d) => d.month))},
@@ -538,7 +809,7 @@ export async function handleAdminUI(req: Request): Promise<Response> {
 
         // Costs Chart
         const costsCtx = document.getElementById('costsChart').getContext('2d');
-        new Chart(costsCtx, {
+        costsChart = new Chart(costsCtx, {
             type: 'bar',
             data: {
                 labels: ${JSON.stringify(monthlyCostData.map((d) => d.month))},

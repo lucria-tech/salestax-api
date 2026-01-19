@@ -43,8 +43,8 @@ async function saveMonthlyLog(log: MonthlyQueryLog): Promise<void> {
     const key = getLogKey(log.month);
     await redis.set(key, JSON.stringify(log));
     
-    // Set expiration to 1 year (optional, but good practice)
-    await redis.expire(key, 365 * 24 * 60 * 60);
+    // Set expiration to 2 months (~60 days) to keep storage low while retaining 1 extra month of history
+    await redis.expire(key, 60 * 24 * 60 * 60);
   } catch (error) {
     console.error(`Error saving log to Redis for month ${log.month}:`, error);
     throw error;
